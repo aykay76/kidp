@@ -1,0 +1,22 @@
+apiVersion: platform.company.com/v1
+kind: Team
+metadata:
+  name: platform-team
+spec:
+  displayName: "Platform Engineering"
+  contacts:
+    - name: "Alice Johnson"
+      email: "alice@company.com"
+      role: "Team Lead"
+    - name: "Bob Smith"
+      email: "bob@company.com"
+      role: "Engineer"
+  costCenter: "ENG-001"
+  budget:
+    monthlyLimit: 50000.00
+    alertThresholds: [0.7, 0.9]
+  quotas:
+    maxApplications: 10
+    maxDatabases: 20
+    maxServices: 50
+    maxCaches: 10

@@ -1,0 +1,22 @@
+apiVersion: platform.company.com/v1
+kind: Database
+metadata:
+  name: postgres-app-db
+  namespace: default
+spec:
+  owner:
+    kind: Team
+    name: platform-team
+  engine: postgresql
+  version: "15"
+  size: medium
+  highAvailability: true
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # 2 AM daily
+    retention: "30d"
+  encryption:
+    atRest:
+      enabled: true
+    inTransit:
+      enabled: true
