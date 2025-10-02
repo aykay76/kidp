@@ -1,0 +1,42 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+testbin/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+
+# Kubernetes Generated files - skip generated CRD yamls
+config/crd/bases/*.yaml
+
+# Editor and IDE paraphernalia
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Kind cluster state
+.kind/
+
+# Tilt
+.tilt/
+
+# Temporary files
+tmp/
+temp/
+
+# Environment files
+.env
+.env.local
+
+# macOS
+.DS_Store
