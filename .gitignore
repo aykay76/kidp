@@ -42,3 +42,7 @@ temp/
 .DS_Store
 
 operator.log
+
+# Exclude compiled binaries (in root only)
+/broker
+/manager
