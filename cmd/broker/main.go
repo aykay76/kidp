@@ -157,10 +157,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	uptime := time.Since(s.startTime)
+
 	response := map[string]interface{}{
-		"status":  "healthy",
-		"version": version,
-		"time":    time.Now().UTC().Format(time.RFC3339),
+		"status":            "healthy",
+		"version":           version,
+		"time":              time.Now().UTC().Format(time.RFC3339),
+		"uptime":            uptime.String(),
+		"uptimeSeconds":     int64(uptime.Seconds()),
+		"activeDeployments": 0, // TODO: Track active deployments
+		"totalDeployments":  0, // TODO: Track total deployments
+		"failedDeployments": 0, // TODO: Track failed deployments
 	}
 
 	s.respondJSON(w, http.StatusOK, response)

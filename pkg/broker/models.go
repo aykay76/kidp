@@ -116,15 +116,18 @@ type CallbackRequest struct {
 	Namespace    string `json:"namespace"`
 
 	// Status information
-	Phase   string    `json:"phase"`   // Provisioning, Ready, Failed, Deleting, Deleted
-	Message string    `json:"message"` // Human-readable status message
-	Time    time.Time `json:"time"`    // Timestamp of status update
+	Status  string    `json:"status"`          // success, failed, in-progress
+	Phase   string    `json:"phase"`           // Provisioning, Ready, Failed, Deleting, Deleted
+	Message string    `json:"message"`         // Human-readable status message
+	Error   string    `json:"error,omitempty"` // Error message if status is failed
+	Time    time.Time `json:"time"`            // Timestamp of status update
 
 	// Resource details (populated when Ready)
-	Endpoint           string            `json:"endpoint,omitempty"`           // Connection endpoint
-	Port               int32             `json:"port,omitempty"`               // Connection port
-	ConnectionSecret   string            `json:"connectionSecret,omitempty"`   // Name of K8s secret with credentials
-	AdditionalMetadata map[string]string `json:"additionalMetadata,omitempty"` // Resource-specific metadata
+	Endpoint           string                 `json:"endpoint,omitempty"`           // Connection endpoint
+	Port               int32                  `json:"port,omitempty"`               // Connection port
+	ConnectionSecret   string                 `json:"connectionSecret,omitempty"`   // Name of K8s secret with credentials
+	Details            map[string]interface{} `json:"details,omitempty"`            // Additional details
+	AdditionalMetadata map[string]string      `json:"additionalMetadata,omitempty"` // Resource-specific metadata
 
 	// Cost tracking
 	EstimatedMonthlyCost float64 `json:"estimatedMonthlyCost,omitempty"`

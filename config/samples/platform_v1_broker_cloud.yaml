@@ -1,0 +1,106 @@
+apiVersion: platform.company.com/v1
+kind: Broker
+metadata:
+  name: azure-eastus-broker
+  namespace: kidp-system
+  labels:
+    platform.company.com/managed-by: kidp
+    platform.company.com/cloud-provider: azure
+    platform.company.com/region: eastus
+spec:
+  endpoint: "https://broker-azure-eastus.platform.company.com"
+  cloudProvider: "azure"
+  region: "eastus"
+  priority: 100
+  maxConcurrentDeployments: 50
+  
+  capabilities:
+    - resourceType: Database
+      providers:
+        - azure-sql
+        - postgresql
+        - mysql
+      regions:
+        - eastus
+        - eastus2
+    - resourceType: Cache
+      providers:
+        - azure-redis
+      regions:
+        - eastus
+    - resourceType: Storage
+      providers:
+        - azure-blob
+        - azure-files
+      regions:
+        - eastus
+        - eastus2
+  
+  authentication:
+    type: jwt
+    secretRef:
+      name: azure-broker-jwt-secret
+      key: token
+  
+  healthCheck:
+    endpoint: "/health"
+    intervalSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+---
+apiVersion: platform.company.com/v1
+kind: Broker
+metadata:
+  name: aws-us-west-2-broker
+  namespace: kidp-system
+  labels:
+    platform.company.com/managed-by: kidp
+    platform.company.com/cloud-provider: aws
+    platform.company.com/region: us-west-2
+spec:
+  endpoint: "https://broker-aws-us-west-2.platform.company.com"
+  cloudProvider: "aws"
+  region: "us-west-2"
+  priority: 100
+  maxConcurrentDeployments: 50
+  
+  capabilities:
+    - resourceType: Database
+      providers:
+        - rds-postgresql
+        - rds-mysql
+        - aurora-postgresql
+        - aurora-mysql
+        - dynamodb
+      regions:
+        - us-west-2
+    - resourceType: Cache
+      providers:
+        - elasticache-redis
+        - elasticache-memcached
+      regions:
+        - us-west-2
+    - resourceType: Storage
+      providers:
+        - s3
+      regions:
+        - us-west-2
+    - resourceType: Topic
+      providers:
+        - msk
+        - sqs
+        - sns
+      regions:
+        - us-west-2
+  
+  authentication:
+    type: jwt
+    secretRef:
+      name: aws-broker-jwt-secret
+      key: token
+  
+  healthCheck:
+    endpoint: "/health"
+    intervalSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
