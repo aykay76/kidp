@@ -40,3 +40,5 @@ temp/
 
 # macOS
 .DS_Store
+
+operator.log
