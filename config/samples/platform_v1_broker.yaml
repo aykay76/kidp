@@ -1,0 +1,37 @@
+apiVersion: platform.company.com/v1
+kind: Broker
+metadata:
+  name: local-broker
+  namespace: kidp-system
+  labels:
+    platform.company.com/managed-by: kidp
+spec:
+  endpoint: "http://broker-service.kidp-broker-local.svc.cluster.local:8082"
+  cloudProvider: "on-prem"
+  region: "local"
+  priority: 100
+  maxConcurrentDeployments: 10
+  
+  capabilities:
+    - resourceType: Database
+      providers:
+        - postgresql
+        - mysql
+        - mongodb
+        - redis
+    - resourceType: Cache
+      providers:
+        - redis
+        - memcached
+    - resourceType: Topic
+      providers:
+        - kafka
+  
+  authentication:
+    type: none  # For local development
+  
+  healthCheck:
+    endpoint: "/health"
+    intervalSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
