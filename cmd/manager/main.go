@@ -31,6 +31,8 @@ import (
 
 	platformv1 "github.com/aykay76/kidp/api/v1"
 	"github.com/aykay76/kidp/internal/controller"
+	"github.com/aykay76/kidp/internal/webhook"
+	"github.com/aykay76/kidp/pkg/brokerregistry"
 )
 
 var (
@@ -47,9 +49,11 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var webhookPort int
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.IntVar(&webhookPort, "webhook-port", 9090, "The port the webhook server binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -76,9 +80,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.DatabaseReconciler{
+	if err = (&controller.BrokerReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Broker")
+		os.Exit(1)
+	}
+
+	// Create broker registry for dynamic broker discovery
+	registry := brokerregistry.NewRegistry(mgr.GetClient())
+
+	if err = (&controller.DatabaseReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		BrokerRegistry: registry,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Database")
 		os.Exit(1)
@@ -100,6 +116,15 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
+
+	// Start webhook server to receive callbacks from broker
+	webhookServer := webhook.NewServer(mgr.GetClient(), webhookPort)
+	go func() {
+		if err := webhookServer.Start(ctrl.SetupSignalHandler()); err != nil {
+			setupLog.Error(err, "problem running webhook server")
+		}
+	}()
+	setupLog.Info("started webhook server", "port", webhookPort)
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
