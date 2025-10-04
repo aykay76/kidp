@@ -134,6 +134,11 @@ type BrokerStatus struct {
 	// Message provides additional context about the current phase
 	// +optional
 	Message string `json:"message,omitempty"`
+
+	// CallbackPublicKey is the broker's public key used to verify callbacks
+	// The manager records this when the broker registers its keypair.
+	// +optional
+	CallbackPublicKey string `json:"callbackPublicKey,omitempty"`
 }
 
 // +kubebuilder:object:root=true
