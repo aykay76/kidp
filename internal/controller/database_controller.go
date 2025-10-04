@@ -167,22 +167,40 @@ func (r *DatabaseReconciler) cleanupDatabase(ctx context.Context, database *plat
 		log.Info("Calling broker to deprovision database",
 			"deploymentId", database.Status.DeploymentID,
 			"engine", database.Spec.Engine)
-
-		// For deprovisioning, we need to find which broker handled the original provisioning
-		// In a more sophisticated implementation, we'd store the broker name in the Database status
-		// For now, we'll just try to find any available broker with the right capabilities
-
-		criteria := brokerregistry.SelectionCriteria{
-			ResourceType: "Database",
-			Provider:     database.Spec.Engine,
+		// Prefer the broker that handled provisioning if recorded in status
+		var selectedBroker *platformv1.Broker
+		var err error
+		if database.Status.BrokerRef != nil && database.Status.BrokerRef.Name != "" {
+			// Try to fetch the Broker CR directly
+			broker := &platformv1.Broker{}
+			ns := database.Status.BrokerRef.Namespace
+			if ns == "" {
+				ns = database.Namespace
+			}
+			if getErr := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: database.Status.BrokerRef.Name}, broker); getErr == nil {
+				selectedBroker = broker
+			} else {
+				log.Info("Recorded BrokerRef not found, falling back to registry selection",
+					"brokerRefName", database.Status.BrokerRef.Name, "err", getErr)
+			}
 		}
 
-		selectedBroker, err := r.BrokerRegistry.SelectBroker(ctx, criteria)
-		if err != nil {
-			// Log error but don't fail - the resource might have been provisioned by a broker
-			// that no longer exists
-			log.Error(err, "Failed to select broker for deprovisioning, continuing anyway")
-		} else {
+		// If no broker from status, select one matching capabilities
+		if selectedBroker == nil {
+			criteria := brokerregistry.SelectionCriteria{
+				ResourceType: "Database",
+				Provider:     database.Spec.Engine,
+			}
+
+			selectedBroker, err = r.BrokerRegistry.SelectBroker(ctx, criteria)
+			if err != nil {
+				// Log error but continue; resource might have been provisioned by a broker that no longer exists
+				log.Error(err, "Failed to select broker for deprovisioning, continuing anyway")
+				selectedBroker = nil
+			}
+		}
+
+		if selectedBroker != nil {
 			// Create broker client for deprovisioning
 			brokerClient := brokerclient.NewClient(selectedBroker.Spec.Endpoint)
 
@@ -296,6 +314,12 @@ func (r *DatabaseReconciler) provisionDatabase(ctx context.Context, database *pl
 
 	// Store deploymentID in status
 	database.Status.DeploymentID = resp.DeploymentID
+
+	// Persist which broker handled the provisioning so deprovision targets the same broker
+	database.Status.BrokerRef = &platformv1.ObjectReference{
+		Name:      selectedBroker.Name,
+		Namespace: selectedBroker.Namespace,
+	}
 	if err := r.Status().Update(ctx, database); err != nil {
 		return fmt.Errorf("failed to update status with deploymentId: %w", err)
 	}
