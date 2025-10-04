@@ -18,6 +18,7 @@ package webhook
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -26,6 +27,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"crypto/ed25519"
 
 	platformv1 "github.com/aykay76/kidp/api/v1"
 )
@@ -98,10 +101,71 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read full body for signature verification
 	var callback CallbackRequest
-	if err := json.NewDecoder(r.Body).Decode(&callback); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&callback); err != nil {
 		log.Printf("Failed to decode callback: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Verify signature headers: Broker-Name, Timestamp, Signature
+	brokerName := r.Header.Get("X-KIDP-Broker-Name")
+	timestamp := r.Header.Get("X-KIDP-Timestamp")
+	signature := r.Header.Get("X-KIDP-Signature")
+
+	if brokerName == "" || timestamp == "" || signature == "" {
+		log.Printf("Missing signature headers: broker=%s timestamp=%s signature=%s", brokerName, timestamp, signature)
+		http.Error(w, "Missing signature headers", http.StatusUnauthorized)
+		return
+	}
+
+	// Replay protection: allow small skew (5m)
+	ts, terr := time.Parse(time.RFC3339, timestamp)
+	if terr != nil {
+		log.Printf("Invalid timestamp header: %v", terr)
+		http.Error(w, "Invalid timestamp", http.StatusBadRequest)
+		return
+	}
+	if time.Since(ts) > 5*time.Minute || time.Until(ts) > 1*time.Minute {
+		log.Printf("Timestamp outside allowed skew: %v", ts)
+		http.Error(w, "Timestamp outside allowed range", http.StatusUnauthorized)
+		return
+	}
+
+	// Lookup Broker CR by name to get stored public key
+	var brokerCR platformv1.Broker
+	if getErr := s.client.Get(r.Context(), client.ObjectKey{Namespace: "default", Name: brokerName}, &brokerCR); getErr != nil {
+		log.Printf("Failed to get Broker CR for %s: %v", brokerName, getErr)
+		http.Error(w, "Unknown broker", http.StatusUnauthorized)
+		return
+	}
+
+	pubB64 := brokerCR.Status.CallbackPublicKey
+	if pubB64 == "" {
+		// Accept public key from header only if CR doesn't have one (initial registration)
+		pubB64 = r.Header.Get("X-KIDP-Public-Key")
+		if pubB64 == "" {
+			log.Printf("No public key available for broker %s", brokerName)
+			http.Error(w, "No public key available", http.StatusUnauthorized)
+			return
+		}
+		// Optionally, persist this key to the Broker CR (left as future work)
+	}
+
+	// Reconstruct the raw body for verification: we need the original JSON bytes.
+	// Since we've already decoded into struct, re-marshal to get deterministic bytes.
+	rawBody, mErr := json.Marshal(callback)
+	if mErr != nil {
+		log.Printf("Failed to re-marshal callback for verification: %v", mErr)
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+
+	if ok, vErr := verifySignature(rawBody, timestamp, signature, pubB64); !ok {
+		log.Printf("Signature verification failed for broker %s: %v", brokerName, vErr)
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}
 
@@ -201,6 +265,28 @@ func (s *Server) handleDatabaseCallback(ctx context.Context, callback CallbackRe
 		database.Namespace, database.Name, database.Status.Phase, callback.Status)
 
 	return nil
+}
+
+// verifySignature verifies an Ed25519 signature. signatureB64 and pubKeyB64 are base64 encoded.
+// The message that was signed is timestamp + '.' + body
+func verifySignature(body []byte, timestamp, signatureB64, pubKeyB64 string) (bool, error) {
+	sigBytes, err := base64.StdEncoding.DecodeString(signatureB64)
+	if err != nil {
+		return false, fmt.Errorf("failed to decode signature: %w", err)
+	}
+	pubBytes, err := base64.StdEncoding.DecodeString(pubKeyB64)
+	if err != nil {
+		return false, fmt.Errorf("failed to decode public key: %w", err)
+	}
+	if len(pubBytes) != ed25519.PublicKeySize {
+		return false, fmt.Errorf("invalid public key size: %d", len(pubBytes))
+	}
+	msg := append([]byte(timestamp+"."), body...)
+	ok := ed25519.Verify(ed25519.PublicKey(pubBytes), msg, sigBytes)
+	if !ok {
+		return false, fmt.Errorf("signature verification failed")
+	}
+	return true, nil
 }
 
 // handleHealth returns health status

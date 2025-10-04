@@ -18,20 +18,28 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	platformv1 "github.com/aykay76/kidp/api/v1"
 	"github.com/aykay76/kidp/pkg/broker"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -78,6 +86,108 @@ func main() {
 		logger.Fatalf("Failed to create Kubernetes client: %v", err)
 	}
 	logger.Println("Successfully connected to Kubernetes cluster")
+
+	// Create controller-runtime client to patch Broker CR status
+	cfg := ctrl.GetConfigOrDie()
+	scheme := runtime.NewScheme()
+	if err := platformv1.AddToScheme(scheme); err != nil {
+		logger.Fatalf("Failed to add platformv1 to scheme: %v", err)
+	}
+	crClient, err := crclient.New(cfg, crclient.Options{Scheme: scheme})
+	if err != nil {
+		logger.Fatalf("Failed to create controller-runtime client: %v", err)
+	}
+
+	// Ensure broker private key exists and register public key in Broker CR
+	// Private key can be provided via BROKER_PRIVATE_KEY_PATH or generated and stored there.
+	privPath := os.Getenv("BROKER_PRIVATE_KEY_PATH")
+	if privPath == "" {
+		privPath = "/var/run/broker/private.key"
+	}
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(privPath), 0700); err != nil {
+		logger.Fatalf("Failed to create key directory: %v", err)
+	}
+
+	var priv ed25519.PrivateKey
+	if _, err := os.Stat(privPath); os.IsNotExist(err) {
+		// Generate new key
+		pub, ppriv, genErr := ed25519.GenerateKey(rand.Reader)
+		if genErr != nil {
+			logger.Fatalf("Failed to generate ed25519 keypair: %v", genErr)
+		}
+		priv = ppriv
+		// Write raw private key bytes to file (0600)
+		if writeErr := ioutil.WriteFile(privPath, priv, 0600); writeErr != nil {
+			logger.Fatalf("Failed to write private key to %s: %v", privPath, writeErr)
+		}
+
+		// Persist public key to Broker CR if BROKER_NAME provided
+		brokerName := os.Getenv("BROKER_NAME")
+		brokerNS := os.Getenv("BROKER_NAMESPACE")
+		if brokerNS == "" {
+			brokerNS = "default"
+		}
+		if brokerName != "" {
+			pubB64 := base64.StdEncoding.EncodeToString(pub)
+			var brokerCR platformv1.Broker
+			ctx := context.Background()
+			if getErr := crClient.Get(ctx, crclient.ObjectKey{Namespace: brokerNS, Name: brokerName}, &brokerCR); getErr != nil {
+				logger.Printf("Failed to get Broker CR %s/%s: %v", brokerNS, brokerName, getErr)
+			} else {
+				brokerCR.Status.CallbackPublicKey = pubB64
+				if upErr := crClient.Status().Update(ctx, &brokerCR); upErr != nil {
+					logger.Printf("Failed to update Broker CR status with public key: %v", upErr)
+				} else {
+					logger.Printf("Registered broker public key in Broker CR %s/%s", brokerNS, brokerName)
+				}
+			}
+		} else {
+			logger.Printf("BROKER_NAME not set; skipping Broker CR public key registration")
+		}
+	} else if err == nil {
+		// Read existing private key
+		b, rerr := ioutil.ReadFile(privPath)
+		if rerr != nil {
+			logger.Fatalf("Failed to read existing private key: %v", rerr)
+		}
+		if len(b) != ed25519.PrivateKeySize {
+			logger.Fatalf("Invalid private key size in %s: %d", privPath, len(b))
+		}
+		priv = ed25519.PrivateKey(b)
+	} else if err != nil {
+		logger.Fatalf("Failed to stat private key: %v", err)
+	}
+
+	// If private key was present (or generated above), ensure public key is stored in Broker CR
+	if priv != nil {
+		pub := priv.Public().(ed25519.PublicKey)
+		pubB64 := base64.StdEncoding.EncodeToString(pub)
+		brokerName := os.Getenv("BROKER_NAME")
+		brokerNS := os.Getenv("BROKER_NAMESPACE")
+		if brokerNS == "" {
+			brokerNS = "default"
+		}
+		if brokerName != "" {
+			var brokerCR platformv1.Broker
+			ctx := context.Background()
+			if getErr := crClient.Get(ctx, crclient.ObjectKey{Namespace: brokerNS, Name: brokerName}, &brokerCR); getErr != nil {
+				logger.Printf("Failed to get Broker CR %s/%s: %v", brokerNS, brokerName, getErr)
+			} else {
+				if brokerCR.Status.CallbackPublicKey != pubB64 {
+					brokerCR.Status.CallbackPublicKey = pubB64
+					if upErr := crClient.Status().Update(ctx, &brokerCR); upErr != nil {
+						logger.Printf("Failed to update Broker CR status with public key: %v", upErr)
+					} else {
+						logger.Printf("Updated broker public key in Broker CR %s/%s", brokerNS, brokerName)
+					}
+				}
+			}
+		} else {
+			logger.Printf("BROKER_NAME not set; skipping Broker CR public key registration")
+		}
+	}
 
 	// Create server
 	server := NewServer(config, logger, k8sClient)
