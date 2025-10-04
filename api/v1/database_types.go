@@ -150,6 +150,10 @@ type DatabaseStatus struct {
 	// +optional
 	DeploymentID string `json:"deploymentId,omitempty"`
 
+	// BrokerRef references the Broker CR that handled this deployment
+	// +optional
+	BrokerRef *ObjectReference `json:"brokerRef,omitempty"`
+
 	// Cost information
 	// +optional
 	Cost *CostInfo `json:"cost,omitempty"`
@@ -210,4 +214,10 @@ type DatabaseList struct {
 
 func init() {
 	SchemeBuilder.Register(&Database{}, &DatabaseList{})
+}
+
+// ObjectReference is a reference to another Kubernetes object
+type ObjectReference struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
