@@ -1,0 +1,1 @@
+- When creating a pull request, unset the GITHUB_TOKEN environment variable and use the GH CLI
