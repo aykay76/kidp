@@ -34,6 +34,10 @@ type TeamSpec struct {
 	// +optional
 	Contacts []Contact `json:"contacts,omitempty"`
 
+	// Owner references the owning Tenant
+	// +optional
+	Owner OwnerReference `json:"owner,omitempty"`
+
 	// CostCenter is used for budget tracking and chargeback
 	// +optional
 	CostCenter string `json:"costCenter,omitempty"`
@@ -128,7 +132,7 @@ type ResourceCount struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Namespaced,shortName=team
 // +kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Applications",type=integer,JSONPath=`.status.resourceCount.applications`
