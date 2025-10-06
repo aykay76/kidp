@@ -190,9 +190,11 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "accepted",
-	})
+	}); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
 }
 
 // handleDatabaseCallback updates the Database CR based on the callback
@@ -292,7 +294,9 @@ func verifySignature(body []byte, timestamp, signatureB64, pubKeyB64 string) (bo
 // handleHealth returns health status
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "healthy",
-	})
+	}); err != nil {
+		log.Printf("Failed to encode health response: %v", err)
+	}
 }

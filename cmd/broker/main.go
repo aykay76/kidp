@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -119,7 +118,7 @@ func main() {
 		}
 		priv = ppriv
 		// Write raw private key bytes to file (0600)
-		if writeErr := ioutil.WriteFile(privPath, priv, 0600); writeErr != nil {
+		if writeErr := os.WriteFile(privPath, priv, 0600); writeErr != nil {
 			logger.Fatalf("Failed to write private key to %s: %v", privPath, writeErr)
 		}
 
@@ -148,7 +147,7 @@ func main() {
 		}
 	} else if err == nil {
 		// Read existing private key
-		b, rerr := ioutil.ReadFile(privPath)
+		b, rerr := os.ReadFile(privPath)
 		if rerr != nil {
 			logger.Fatalf("Failed to read existing private key: %v", rerr)
 		}
@@ -156,7 +155,7 @@ func main() {
 			logger.Fatalf("Invalid private key size in %s: %d", privPath, len(b))
 		}
 		priv = ed25519.PrivateKey(b)
-	} else if err != nil {
+	} else {
 		logger.Fatalf("Failed to stat private key: %v", err)
 	}
 

@@ -23,7 +23,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -184,7 +183,7 @@ func signCallback(body []byte, timestamp string) (sigB64 string, pubKeyB64 strin
 		if path == "" {
 			return "", "", fmt.Errorf("no private key configured (set BROKER_PRIVATE_KEY or BROKER_PRIVATE_KEY_PATH)")
 		}
-		privBytes, err = ioutil.ReadFile(path)
+		privBytes, err = os.ReadFile(path)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to read private key file: %w", err)
 		}
