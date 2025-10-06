@@ -61,7 +61,7 @@ type DatabaseSpec struct {
 // OwnerReference points to the owning resource
 type OwnerReference struct {
 	// Kind of the owner (Team, Application)
-	// +kubebuilder:validation:Enum=Team;Application
+	// +kubebuilder:validation:Enum=Tenant;Team;Application
 	Kind string `json:"kind"`
 
 	// Name of the owner
