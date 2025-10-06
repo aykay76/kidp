@@ -132,6 +132,7 @@ spec:
                   kind:
                     description: Kind of the owner (Team, Application)
                     enum:
+                    - Tenant
                     - Team
                     - Application
                     type: string
@@ -174,6 +175,18 @@ spec:
           status:
             description: DatabaseStatus defines the observed state of Database
             properties:
+              brokerRef:
+                description: BrokerRef references the Broker CR that handled this
+                  deployment
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
               cloudResourceId:
                 description: CloudResourceID is the cloud provider's resource identifier
                 type: string
@@ -267,14 +280,6 @@ spec:
               deploymentId:
                 description: DeploymentID from the broker
                 type: string
-              brokerRef:
-                description: BrokerRef references the Broker CR that handled this deployment
-                properties:
-                  name:
-                    type: string
-                  namespace:
-                    type: string
-                type: object
               endpoint:
                 description: Endpoint is the connection endpoint
                 type: string

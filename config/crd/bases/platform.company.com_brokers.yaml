@@ -179,6 +179,11 @@ spec:
                 description: ActiveDeployments is the current number of active deployments
                 format: int32
                 type: integer
+              callbackPublicKey:
+                description: |-
+                  CallbackPublicKey is the broker's public key used to verify callbacks
+                  The manager records this when the broker registers its keypair.
+                type: string
               conditions:
                 description: Conditions represent the latest observations of the broker's
                   state

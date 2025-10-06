@@ -14,10 +14,7 @@ spec:
     singular: tenant
   scope: Cluster
   versions:
-  - name: v1
-    served: true
-    storage: true
-    additionalPrinterColumns:
+  - additionalPrinterColumns:
     - jsonPath: .spec.displayName
       name: Display Name
       type: string
@@ -33,28 +30,33 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: Tenant is the Schema for the tenants API
         properties:
           apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
             description: TenantSpec defines the desired state of Tenant
             properties:
-              displayName:
-                description: DisplayName is the human-readable name of the tenant
-                minLength: 1
-                type: string
-              description:
-                description: Description provides additional context about the tenant
-                type: string
-              domain:
-                description: Domain is an optional DNS or organizational domain for the tenant
+              billingCode:
+                description: BillingCode used for chargeback or invoicing
                 type: string
               contacts:
                 description: Contacts lists primary contacts for the tenant
@@ -68,7 +70,7 @@ spec:
                       description: Name of the contact person
                       type: string
                     role:
-                      description: Role of the contact
+                      description: Role of the contact (e.g., "Team Lead", "Tech Lead")
                       type: string
                     slack:
                       description: Slack channel or handle
@@ -78,22 +80,33 @@ spec:
                   - name
                   type: object
                 type: array
-              billingCode:
-                description: BillingCode used for chargeback or invoicing
+              description:
+                description: Description provides additional context about the tenant
+                type: string
+              displayName:
+                description: DisplayName is the human-readable name of the tenant
+                minLength: 1
+                type: string
+              domain:
+                description: Domain is an optional DNS or organizational domain for
+                  the tenant
                 type: string
               quotas:
                 description: Quotas define tenant-wide limits
                 properties:
-                  maxTeams:
-                    description: MaxTeams is the maximum number of teams allowed in this tenant
-                    format: int32
-                    type: integer
                   maxApplications:
-                    description: MaxApplications is the maximum number of applications across the tenant
+                    description: MaxApplications is the maximum number of applications
+                      across the tenant
                     format: int32
                     type: integer
                   maxDatabases:
-                    description: MaxDatabases is the maximum number of databases across the tenant
+                    description: MaxDatabases is the maximum number of databases across
+                      the tenant
+                    format: int32
+                    type: integer
+                  maxTeams:
+                    description: MaxTeams is the maximum number of teams allowed in
+                      this tenant
                     format: int32
                     type: integer
                 type: object
@@ -103,35 +116,63 @@ spec:
           status:
             description: TenantStatus defines the observed state of Tenant
             properties:
-              phase:
-                description: Phase represents the current lifecycle phase
-                enum:
-                - Active
-                - Suspended
-                - Archived
-                type: string
               conditions:
                 description: Conditions represent the latest available observations
                 items:
-                  $ref: "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.Condition"
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
                 type: array
-              resourceCount:
-                description: ResourceCount tracks the number of resources owned by this tenant
-                properties:
-                  teams:
-                    format: int32
-                    type: integer
-                  applications:
-                    format: int32
-                    type: integer
-                  databases:
-                    format: int32
-                    type: integer
-                required:
-                - teams
-                - applications
-                - databases
-                type: object
               currentSpend:
                 description: CurrentSpend tracks current monthly spending
                 type: number
@@ -139,6 +180,34 @@ spec:
                 description: LastUpdated is the last time the status was updated
                 format: date-time
                 type: string
+              phase:
+                description: Phase represents the current lifecycle phase
+                enum:
+                - Active
+                - Suspended
+                - Archived
+                type: string
+              resourceCount:
+                description: ResourceCount tracks the number of resources owned by
+                  this tenant
+                properties:
+                  applications:
+                    format: int32
+                    type: integer
+                  databases:
+                    format: int32
+                    type: integer
+                  teams:
+                    format: int32
+                    type: integer
+                required:
+                - applications
+                - databases
+                - teams
+                type: object
             type: object
+        type: object
+    served: true
+    storage: true
     subresources:
       status: {}

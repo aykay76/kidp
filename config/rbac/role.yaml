@@ -7,8 +7,11 @@ rules:
 - apiGroups:
   - platform.company.com
   resources:
+  - applications
+  - brokers
   - databases
   - teams
+  - tenants
   verbs:
   - create
   - delete
@@ -20,15 +23,21 @@ rules:
 - apiGroups:
   - platform.company.com
   resources:
+  - applications/finalizers
+  - brokers/finalizers
   - databases/finalizers
   - teams/finalizers
+  - tenants/finalizers
   verbs:
   - update
 - apiGroups:
   - platform.company.com
   resources:
+  - applications/status
+  - brokers/status
   - databases/status
   - teams/status
+  - tenants/status
   verbs:
   - get
   - patch
