@@ -52,8 +52,8 @@ type DatabaseReconciler struct {
 func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	// Debug: trace reconcile entry (logged at V(1))
-	log.V(1).Info("Reconcile called", "namespace", req.Namespace, "name", req.Name)
+	// Trace reconcile entry (use V(2) for very noisy environments)
+	log.V(2).Info("Reconcile called", "namespace", req.Namespace, "name", req.Name)
 
 	// Fetch the Database instance
 	database := &platformv1.Database{}
@@ -63,12 +63,12 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			// Object not found, could have been deleted after reconcile request.
 			// Return and don't requeue
 			log.Info("Database resource not found. Ignoring since object must be deleted")
-			log.V(1).Info("initial Get returned NotFound", "namespace", req.Namespace, "name", req.Name)
+			log.V(2).Info("initial Get returned NotFound", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
 		log.Error(err, "Failed to get Database")
-		log.V(1).Info("initial Get returned error", "error", err)
+	// error already logged above
 		return ctrl.Result{}, err
 	}
 
@@ -85,7 +85,7 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		controllerutil.AddFinalizer(database, databaseFinalizerName)
 		if err := r.Update(ctx, database); err != nil {
 			log.Error(err, "Failed to add finalizer")
-			log.V(1).Info("Update(add finalizer) returned error", "error", err, "isNotFound", errors.IsNotFound(err))
+			log.V(2).Info("Update(add finalizer) returned error", "error", err, "isNotFound", errors.IsNotFound(err))
 			return ctrl.Result{}, err
 		}
 		// Requeue to process with finalizer in place
@@ -121,7 +121,7 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		database.Labels["platform.company.com/tenant"] = tenant.Name
 		if err := r.Update(ctx, database); err != nil {
 			log.Error(err, "Failed to label Database with tenant")
-			log.V(1).Info("Update(label) returned error", "error", err, "isNotFound", errors.IsNotFound(err))
+			log.V(2).Info("Update(label) returned error", "error", err, "isNotFound", errors.IsNotFound(err))
 			return ctrl.Result{}, err
 		}
 		if r.Recorder != nil {
