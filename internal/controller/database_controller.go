@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -40,6 +41,7 @@ type DatabaseReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
 	BrokerRegistry *brokerregistry.Registry
+	Recorder       record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=platform.company.com,resources=databases,verbs=get;list;watch;create;update;patch;delete
@@ -50,6 +52,9 @@ type DatabaseReconciler struct {
 func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
+	// Debug: trace reconcile entry (logged at V(1))
+	log.V(1).Info("Reconcile called", "namespace", req.Namespace, "name", req.Name)
+
 	// Fetch the Database instance
 	database := &platformv1.Database{}
 	err := r.Get(ctx, req.NamespacedName, database)
@@ -58,12 +63,16 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			// Object not found, could have been deleted after reconcile request.
 			// Return and don't requeue
 			log.Info("Database resource not found. Ignoring since object must be deleted")
+			log.V(1).Info("initial Get returned NotFound", "namespace", req.Namespace, "name", req.Name)
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
 		log.Error(err, "Failed to get Database")
+		log.V(1).Info("initial Get returned error", "error", err)
 		return ctrl.Result{}, err
 	}
+
+	log.V(1).Info("fetched Database object", "namespace", database.Namespace, "name", database.Name, "finalizers", database.Finalizers)
 
 	// Handle deletion
 	if !database.DeletionTimestamp.IsZero() {
@@ -76,6 +85,7 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		controllerutil.AddFinalizer(database, databaseFinalizerName)
 		if err := r.Update(ctx, database); err != nil {
 			log.Error(err, "Failed to add finalizer")
+			log.V(1).Info("Update(add finalizer) returned error", "error", err, "isNotFound", errors.IsNotFound(err))
 			return ctrl.Result{}, err
 		}
 		// Requeue to process with finalizer in place
@@ -88,6 +98,48 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		"namespace", database.Namespace,
 		"engine", database.Spec.Engine,
 		"size", database.Spec.Size)
+
+	// Resolve tenant for this database
+	tenant, terr := ResolveTenant(ctx, r.Client, database)
+	if terr != nil {
+		log.Info("Unable to resolve tenant for database, suspending until tenant is available", "database", database.Name, "err", terr)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(database, "Warning", "TenantUnresolved", "tenant could not be resolved: %v", terr)
+		}
+		database.Status.Phase = "Suspended"
+		if statusErr := r.Status().Update(ctx, database); statusErr != nil {
+			log.Error(statusErr, "Failed to update Database status")
+			log.V(1).Info("Status().Update(suspend) returned error", "error", statusErr, "isNotFound", errors.IsNotFound(statusErr))
+			// Fall back to full Update for fake clients that don't support status subresource
+			if errors.IsNotFound(statusErr) {
+				if uerr := r.Update(ctx, database); uerr != nil {
+					log.Error(uerr, "Fallback Update after Status().Update failed")
+					return ctrl.Result{}, uerr
+				}
+			} else {
+				return ctrl.Result{}, statusErr
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Ensure DB has tenant label for easy querying by other controllers
+	if database.Labels == nil {
+		database.Labels = map[string]string{}
+	}
+	if database.Labels["platform.company.com/tenant"] != tenant.Name {
+		database.Labels["platform.company.com/tenant"] = tenant.Name
+		if err := r.Update(ctx, database); err != nil {
+			log.Error(err, "Failed to label Database with tenant")
+			log.V(1).Info("Update(label) returned error", "error", err, "isNotFound", errors.IsNotFound(err))
+			return ctrl.Result{}, err
+		}
+		if r.Recorder != nil {
+			r.Recorder.Eventf(database, "Normal", "TenantAssigned", "Assigned tenant %s to database %s", tenant.Name, database.Name)
+		}
+		// Requeue to proceed with provisioning after label update
+		return ctrl.Result{Requeue: true}, nil
+	}
 
 	// If deploymentId exists, provisioning is in progress or complete
 	// Status updates will come via webhook callbacks
@@ -103,7 +155,15 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		database.Status.Phase = "Provisioning"
 		if err := r.Status().Update(ctx, database); err != nil {
 			log.Error(err, "Failed to update Database status")
-			return ctrl.Result{}, err
+			log.V(1).Info("Status().Update(provisioning) returned error", "error", err, "isNotFound", errors.IsNotFound(err))
+			if errors.IsNotFound(err) {
+				if uerr := r.Update(ctx, database); uerr != nil {
+					log.Error(uerr, "Fallback Update after Status().Update failed")
+					return ctrl.Result{}, uerr
+				}
+			} else {
+				return ctrl.Result{}, err
+			}
 		}
 		log.Info("Database status updated to Provisioning", "name", database.Name)
 	}
@@ -321,7 +381,14 @@ func (r *DatabaseReconciler) provisionDatabase(ctx context.Context, database *pl
 		Namespace: selectedBroker.Namespace,
 	}
 	if err := r.Status().Update(ctx, database); err != nil {
-		return fmt.Errorf("failed to update status with deploymentId: %w", err)
+		// try fallback to full update for fake clients
+		if errors.IsNotFound(err) {
+			if uerr := r.Update(ctx, database); uerr != nil {
+				return fmt.Errorf("failed to update status with deploymentId (fallback): %w", uerr)
+			}
+		} else {
+			return fmt.Errorf("failed to update status with deploymentId: %w", err)
+		}
 	}
 
 	return nil
@@ -329,6 +396,7 @@ func (r *DatabaseReconciler) provisionDatabase(ctx context.Context, database *pl
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DatabaseReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.Recorder = mgr.GetEventRecorderFor("database-controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.Database{}).
 		Complete(r)

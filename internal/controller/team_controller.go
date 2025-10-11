@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -78,6 +79,51 @@ func (r *TeamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	log.Info("Reconciling Team",
 		"name", team.Name,
 		"displayName", team.Spec.DisplayName)
+
+	// Validate or infer tenant association for this Team.
+	// Priority: explicit Spec.TenantRef -> namespace label set by Tenant controller
+	var tenantName string
+	if team.Spec.TenantRef != nil && team.Spec.TenantRef.Name != "" {
+		tenantName = team.Spec.TenantRef.Name
+		// verify Tenant exists
+		tenant := &platformv1.Tenant{}
+		if err := r.Get(ctx, client.ObjectKey{Name: tenantName}, tenant); err != nil {
+			if errors.IsNotFound(err) {
+				log.Info("Referenced tenant not found, suspending team", "team", team.Name, "tenant", tenantName)
+				team.Status.Phase = "Suspended"
+				if statusErr := r.Status().Update(ctx, team); statusErr != nil {
+					log.Error(statusErr, "Failed to update Team status")
+					return ctrl.Result{}, statusErr
+				}
+				return ctrl.Result{}, fmt.Errorf("referenced tenant %s not found", tenantName)
+			}
+			log.Error(err, "Failed to get Tenant for TenantRef")
+			return ctrl.Result{}, err
+		}
+	} else {
+		// Try to infer tenant from namespace label set by Tenant controller
+		ns := &corev1.Namespace{}
+		if err := r.Get(ctx, client.ObjectKey{Name: team.Namespace}, ns); err == nil {
+			if tn, ok := ns.Labels["platform.company.com/tenant"]; ok && tn != "" {
+				// set TenantRef on the Team for clarity
+				team.Spec.TenantRef = &platformv1.ObjectReference{Name: tn, Namespace: ""}
+				if err := r.Update(ctx, team); err != nil {
+					log.Error(err, "Failed to set TenantRef on team", "team", team.Name, "tenant", tn)
+					return ctrl.Result{}, err
+				}
+				// requeue to process with TenantRef set
+				return ctrl.Result{Requeue: true}, nil
+			}
+		}
+		// No TenantRef and no namespace label: mark suspended
+		log.Info("No tenantRef set and no tenant label on namespace; suspending team", "team", team.Name)
+		team.Status.Phase = "Suspended"
+		if statusErr := r.Status().Update(ctx, team); statusErr != nil {
+			log.Error(statusErr, "Failed to update Team status")
+			return ctrl.Result{}, statusErr
+		}
+		return ctrl.Result{}, nil
+	}
 
 	// Initialize status if needed
 	if team.Status.Phase == "" {
