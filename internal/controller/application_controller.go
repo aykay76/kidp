@@ -6,6 +6,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -19,7 +20,8 @@ const applicationFinalizerName = "platform.company.com/application-cleanup"
 // ApplicationReconciler reconciles an Application object
 type ApplicationReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=platform.company.com,resources=applications,verbs=get;list;watch;create;update;patch;delete
@@ -66,7 +68,38 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Application status initialized", "name", app.Name)
 	}
 
-	// TODO: Implement additional reconciliation (linking to teams, quota checks)
+	// Resolve tenant for this application (via tenantRef, owner chain, or namespace label)
+	tenant, terr := ResolveTenant(ctx, r.Client, app)
+	if terr != nil {
+		log.Info("Unable to resolve tenant for application, suspending until tenant is available", "application", app.Name, "err", terr)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(app, "Warning", "TenantUnresolved", "tenant could not be resolved: %v", terr)
+		}
+		app.Status.Phase = "Suspended"
+		if statusErr := r.Status().Update(ctx, app); statusErr != nil {
+			log.Error(statusErr, "Failed to update Application status")
+			return ctrl.Result{}, statusErr
+		}
+		// don't requeue aggressively here; tenant controller or owner updates will trigger reconciliation
+		return ctrl.Result{}, nil
+	}
+	log.Info("Application resolved tenant", "application", app.Name, "tenant", tenant.Name)
+	// Ensure resource has tenant label for easy querying by other controllers
+	if app.Labels == nil {
+		app.Labels = map[string]string{}
+	}
+	if app.Labels["platform.company.com/tenant"] != tenant.Name {
+		app.Labels["platform.company.com/tenant"] = tenant.Name
+		if err := r.Update(ctx, app); err != nil {
+			log.Error(err, "Failed to label Application with tenant")
+			return ctrl.Result{}, err
+		}
+		if r.Recorder != nil {
+			r.Recorder.Eventf(app, "Normal", "TenantAssigned", "Assigned tenant %s to application %s", tenant.Name, app.Name)
+		}
+		// Requeue to continue processing with label in place
+		return ctrl.Result{Requeue: true}, nil
+	}
 
 	log.Info("Application reconciliation complete", "name", app.Name)
 	return ctrl.Result{}, nil
@@ -119,6 +152,8 @@ func (r *ApplicationReconciler) checkOwnedResources(ctx context.Context, app *pl
 }
 
 func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Wire event recorder
+	r.Recorder = mgr.GetEventRecorderFor("application-controller")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.Application{}).
 		Complete(r)

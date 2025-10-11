@@ -30,13 +30,21 @@ type TeamSpec struct {
 	// +optional
 	Description string `json:"description,omitempty"`
 
-	// Contacts lists the primary contacts for this team
+	// Members lists the people who are members of this team
 	// +optional
-	Contacts []Contact `json:"contacts,omitempty"`
+	Members []Contact `json:"members,omitempty"`
 
-	// Owner references the owning Tenant
+	// Owners lists the contact(s) responsible for this Team resource
+	// Using an array allows multiple owners (people or on-call rotations).
 	// +optional
-	Owner OwnerReference `json:"owner,omitempty"`
+	Owners []Contact `json:"owners,omitempty"`
+
+	// TenantRef is a convenience reference pointing to the owning Tenant
+	// It is optional but recommended for systems that treat Teams as
+	// first-class children of a Tenant. This is a namespaced object
+	// reference with name and namespace.
+	// +optional
+	TenantRef *ObjectReference `json:"tenantRef,omitempty"`
 
 	// CostCenter is used for budget tracking and chargeback
 	// +optional

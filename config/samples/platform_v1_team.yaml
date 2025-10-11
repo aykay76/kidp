@@ -20,3 +20,9 @@ spec:
     maxDatabases: 20
     maxServices: 50
     maxCaches: 10
+  tenantRef:
+    name: example-tenant
+    namespace: ""
+  owners:
+    - name: "Alice Johnson"
+      email: "alice@company.com"
