@@ -91,7 +91,7 @@ func (r *TeamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			if errors.IsNotFound(err) {
 				log.Info("Referenced tenant not found, suspending team", "team", team.Name, "tenant", tenantName)
 				team.Status.Phase = "Suspended"
-				if statusErr := r.Status().Update(ctx, team); statusErr != nil {
+				if statusErr := UpdateStatusWithFallback(ctx, r.Client, team, log); statusErr != nil {
 					log.Error(statusErr, "Failed to update Team status")
 					return ctrl.Result{}, statusErr
 				}
@@ -118,7 +118,7 @@ func (r *TeamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		// No TenantRef and no namespace label: mark suspended
 		log.Info("No tenantRef set and no tenant label on namespace; suspending team", "team", team.Name)
 		team.Status.Phase = "Suspended"
-		if statusErr := r.Status().Update(ctx, team); statusErr != nil {
+		if statusErr := UpdateStatusWithFallback(ctx, r.Client, team, log); statusErr != nil {
 			log.Error(statusErr, "Failed to update Team status")
 			return ctrl.Result{}, statusErr
 		}
@@ -131,7 +131,7 @@ func (r *TeamReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if team.Status.ResourceCount == nil {
 			team.Status.ResourceCount = &platformv1.ResourceCount{}
 		}
-		if err := r.Status().Update(ctx, team); err != nil {
+		if err := UpdateStatusWithFallback(ctx, r.Client, team, log); err != nil {
 			log.Error(err, "Failed to update Team status")
 			return ctrl.Result{}, err
 		}

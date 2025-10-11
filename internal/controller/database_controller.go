@@ -107,18 +107,8 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			r.Recorder.Eventf(database, "Warning", "TenantUnresolved", "tenant could not be resolved: %v", terr)
 		}
 		database.Status.Phase = "Suspended"
-		if statusErr := r.Status().Update(ctx, database); statusErr != nil {
-			log.Error(statusErr, "Failed to update Database status")
-			log.V(1).Info("Status().Update(suspend) returned error", "error", statusErr, "isNotFound", errors.IsNotFound(statusErr))
-			// Fall back to full Update for fake clients that don't support status subresource
-			if errors.IsNotFound(statusErr) {
-				if uerr := r.Update(ctx, database); uerr != nil {
-					log.Error(uerr, "Fallback Update after Status().Update failed")
-					return ctrl.Result{}, uerr
-				}
-			} else {
-				return ctrl.Result{}, statusErr
-			}
+		if err := UpdateStatusWithFallback(ctx, r.Client, database, log); err != nil {
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
@@ -153,17 +143,8 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Update status to Provisioning
 	if database.Status.Phase != "Provisioning" {
 		database.Status.Phase = "Provisioning"
-		if err := r.Status().Update(ctx, database); err != nil {
-			log.Error(err, "Failed to update Database status")
-			log.V(1).Info("Status().Update(provisioning) returned error", "error", err, "isNotFound", errors.IsNotFound(err))
-			if errors.IsNotFound(err) {
-				if uerr := r.Update(ctx, database); uerr != nil {
-					log.Error(uerr, "Fallback Update after Status().Update failed")
-					return ctrl.Result{}, uerr
-				}
-			} else {
-				return ctrl.Result{}, err
-			}
+		if err := UpdateStatusWithFallback(ctx, r.Client, database, log); err != nil {
+			return ctrl.Result{}, err
 		}
 		log.Info("Database status updated to Provisioning", "name", database.Name)
 	}
@@ -172,7 +153,7 @@ func (r *DatabaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err := r.provisionDatabase(ctx, database); err != nil {
 		log.Error(err, "Failed to provision database")
 		database.Status.Phase = "Failed"
-		if statusErr := r.Status().Update(ctx, database); statusErr != nil {
+		if statusErr := UpdateStatusWithFallback(ctx, r.Client, database, log); statusErr != nil {
 			log.Error(statusErr, "Failed to update status to Failed")
 		}
 		return ctrl.Result{}, err

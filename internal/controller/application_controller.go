@@ -61,7 +61,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if app.Status.Phase == "" {
 		app.Status.Phase = "Draft"
-		if err := r.Status().Update(ctx, app); err != nil {
+		if err := UpdateStatusWithFallback(ctx, r.Client, app, log); err != nil {
 			log.Error(err, "Failed to update Application status")
 			return ctrl.Result{}, err
 		}
@@ -76,7 +76,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.Recorder.Eventf(app, "Warning", "TenantUnresolved", "tenant could not be resolved: %v", terr)
 		}
 		app.Status.Phase = "Suspended"
-		if statusErr := r.Status().Update(ctx, app); statusErr != nil {
+		if statusErr := UpdateStatusWithFallback(ctx, r.Client, app, log); statusErr != nil {
 			log.Error(statusErr, "Failed to update Application status")
 			return ctrl.Result{}, statusErr
 		}
